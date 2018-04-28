@@ -1,0 +1,14 @@
+package net.twerno.carFinder.base.websiteProcessor;
+
+import java.io.IOException;
+import java.util.List;
+import java.util.Map;
+
+public interface IWebsiteCrawler
+{
+  String websiteId();
+
+  String pageUrl(long pageIdx);
+
+  List<WebSiteOffer> newOffers(Map<String, WebSiteOffer> knownOffers) throws IOException;
+}
