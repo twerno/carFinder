@@ -41,7 +41,7 @@ public abstract class ExtendedTypeHelper
       return ExtendedInt.buildUnknown(value);
   }
 
-  public static ExtendedLocalDateTime dateTimeConv(String value, String pattern)
+  public static ExtendedLocalDateTime pattern2DateTime(String value, String pattern)
   {
     if (value == null)
       return null;

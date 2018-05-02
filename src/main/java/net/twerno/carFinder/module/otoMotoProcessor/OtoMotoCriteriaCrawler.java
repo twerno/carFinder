@@ -13,6 +13,7 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 
 import lombok.extern.log4j.Log4j2;
+import net.twerno.carFinder.base.model.error.ParserError;
 import net.twerno.carFinder.base.websiteProcessor.IWebsiteCrawler;
 import net.twerno.carFinder.base.websiteProcessor.WebSiteOffer;
 
@@ -34,12 +35,13 @@ public class OtoMotoCriteriaCrawler implements IWebsiteCrawler
   }
 
   @Override
-  public List<WebSiteOffer> newOffers(Map<String, WebSiteOffer> knownOffers) throws IOException
+  public List<WebSiteOffer> newOffers(Map<String, WebSiteOffer> knownOffers, List<ParserError> errors)
+      throws IOException
   {
     List<WebSiteOffer> result = new ArrayList<>();
 
     Document doc = downloadDoc(1);
-    List<WebSiteOffer> offers = parseArticleList(doc);
+    List<WebSiteOffer> offers = parseArticleList(doc, errors);
     result.add(offers.stream()
         .filter(o -> !knownOffers.containsKey(o.getArticleId()))
         .findFirst()
@@ -95,7 +97,7 @@ public class OtoMotoCriteriaCrawler implements IWebsiteCrawler
         .get();
   }
 
-  private List<WebSiteOffer> parseArticleList(Document doc)
+  private List<WebSiteOffer> parseArticleList(Document doc, List<ParserError> errors)
   {
     return doc.select("article").stream()
         .map(this::parseOffer)

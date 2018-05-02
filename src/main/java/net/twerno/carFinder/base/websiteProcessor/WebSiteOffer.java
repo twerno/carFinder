@@ -11,7 +11,7 @@ public class WebSiteOffer
 {
   private String articleId;
 
-  private String siteId; 
+  private String siteId;
 
   private String title;
 

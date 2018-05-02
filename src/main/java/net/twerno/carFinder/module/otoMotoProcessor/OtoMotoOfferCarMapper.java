@@ -44,7 +44,7 @@ public class OtoMotoOfferCarMapper extends AbstractParamsMapper<Car>
 
     pole("Data dodania")
         .konwertujWartosc(
-            v -> ExtendedTypeHelper.dateTimeConv(
+            v -> ExtendedTypeHelper.pattern2DateTime(
                 OtoModoHelper.miesiacDopelniacz2Kod(v), DATA_WYSTAWIENIA_OGLOSZNIA_PATTERN))
         .zarejestruj((p, v) -> p.setData_wystawienia(v));
 

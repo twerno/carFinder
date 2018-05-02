@@ -1,108 +1,164 @@
 package net.twerno.carFinder.module.otoMotoProcessor;
 
+import static net.twerno.carFinder.base.helper.jsoup.JSoupChainActionBuilder.REQUIRED.OPTIONAL;
+import static net.twerno.carFinder.base.helper.jsoup.JSoupChainActionBuilder.REQUIRED.REQUIRE;
+
 import java.io.IOException;
 import java.util.Objects;
 
-import org.apache.commons.validator.routines.IntegerValidator;
-import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
-import org.springframework.web.client.RestTemplate;
 
 import lombok.extern.log4j.Log4j2;
-import net.twerno.carFinder.base.helper.JsoupHelper;
+import net.twerno.carFinder.base.helper.jsoup.JSoupTransformHelper;
+import net.twerno.carFinder.base.helper.jsoup.JSoupValidatorHelper;
 import net.twerno.carFinder.base.model.Car;
+import net.twerno.carFinder.base.model.Sprzedawca;
+import net.twerno.carFinder.base.model.error.ParserErrors;
+import net.twerno.carFinder.base.utils.extendedType.ExtendedTypeHelper;
+import net.twerno.carFinder.base.websiteProcessor.BaseOfferParser;
 import net.twerno.carFinder.base.websiteProcessor.ISiteOfferParser;
 import net.twerno.carFinder.base.websiteProcessor.WebSiteOffer;
 
 @Log4j2
-public class OtoMotoOfferParser implements ISiteOfferParser
+public class OtoMotoOfferParser extends BaseOfferParser implements ISiteOfferParser
 {
-  private final IntegerValidator intValidator = IntegerValidator.getInstance();
+
   private final OtoMotoOfferCarMapper otoMotoOfferCarMapper = new OtoMotoOfferCarMapper();
 
+  public OtoMotoOfferParser(WebSiteOffer offer, Document offerDoc, ParserErrors errors)
+  {
+    super(offer, offerDoc, errors);
+  }
+
   @Override
-  public Car parseOffer(WebSiteOffer offer, Document offerDoc) throws IOException
+  public Car parseOffer() throws IOException
   {
     Car car = new Car(offer);
 
-    offerParamListParse(car, offerDoc);
-    offerWyposazenieParse(car, offerDoc);
+    offerParamListParse(car);
+    offerWyposazenieParse(car);
     cena(car, offerDoc);
-    naglowek(car, offerDoc);
-    sprzedawca(car, offerDoc);
+    naglowek(car);
+    sprzedawca(car.getSprzedawca());
 
     return car;
   }
 
-  private void sprzedawca(Car car, Document offerDoc)
+  private void sprzedawca(Sprzedawca seller)
   {
-    String sellerType = JsoupHelper.selectFirstText(offerDoc, ".seller-box__seller-type");
-    otoMotoOfferCarMapper.parse(car, "Seller_type", sellerType);
+    field("seller_name", String.class)
+        .write(mapper)
+    // .write(seller::setNazwa)
 
-    String sellerRegistration = JsoupHelper.selectFirstText(offerDoc, ".seller-box__seller-registration");
-    otoMotoOfferCarMapper.parse(car, "Seller_registration", sellerRegistration);
+    // .
 
-    String sellerAdress = JsoupHelper.selectFirstText(offerDoc, ".seller-box__seller-address__label");
-    otoMotoOfferCarMapper.parse(car, "Seller_adress", sellerAdress);
+    // label("seller_name")
+    // .selectFirstAsText(".seller-box__seller-name", REQUIRE)
+    // .then(seller::setNazwa);
 
-    String wwwAdress = JsoupHelper.selectFirstText(offerDoc, ".website-box__link");
-    car.getSprzedawca().setWww(wwwAdress);
+    label("seller_type")
+        .selectFirstAsText(".seller-box__seller-type", REQUIRE)
+        .transform(OtoMotoConvHelper::sellerTypeConv)
+        .then(seller::setTyp);
 
-    Elements numeryTelefonow = offerDoc.select(".om-button.blue.spoiler.seller-phones__button");
-    numeryTelefonow.stream()
-        .filter(Objects::nonNull)
-        .map(e -> e.attr("data-id").trim() + "/" + e.attr("data-index").trim())
-        .filter(s -> s.length() > 1)
-        .distinct()
-        .map(this::pobierzNumerTelefonu)
-        .forEach(car.getSprzedawca().getTelefon()::add);
+    label("seller_registration")
+        .selectFirstAsText(".seller-box__seller-registration", REQUIRE)
+        .then(seller::setOd_kiedy);
 
-    Element sellerPage = offerDoc.selectFirst(".seller-box__seller-name a");
-    if (sellerPage != null)
-    {
-      String sellerPageUrl = sellerPage.attr("href");
-      String email = pobierzAdresEmail(sellerPageUrl);
-      if (email != null)
-      {
-        car.getSprzedawca().getEmail().add(email);
-      }
-    }
+    label("seller_adress")
+        .selectFirstAsText(".seller-box__seller-address__label", OPTIONAL)
+        .then(seller::setAdres);
+
+    label("seller_www")
+        .selectFirstAsText(".website-box__link", OPTIONAL)
+        .then(seller::setWww);
+
+    label("seller_phone")
+        .select(".om-button.blue.spoiler.seller-phones__button")
+        .then(
+            list ->
+            {
+              list.stream()
+                  .filter(Objects::nonNull)
+                  .map(e -> e.attr("data-id").trim() + "/" + e.attr("data-index").trim())
+                  .filter(s -> !s.equals("/"))
+                  .distinct()
+                  .map(OtoMotoOfferParserHelper::pobierzNumerTelefonu)
+                  .forEach(seller.getTelefon()::add);
+            });
+
+    label("seller_email")
+        .selectFirst(".seller-box__seller-name a")
+        .continueIf(Objects::nonNull)
+        .then(
+            sellerPageLink ->
+            {
+              String sellerPageUrl = sellerPageLink.attr("href");
+              String email = OtoMotoOfferParserHelper.pobierzAdresEmail(sellerPageUrl);
+              if (email != null)
+                seller.getEmail().add(email);
+            });
   }
 
   private void naglowek(Car car, Document offerDoc)
   {
-    String dataDodaniaStr = JsoupHelper.selectFirstText(offerDoc, ".icon-calendar + span");
-    otoMotoOfferCarMapper.parse(car, "Data dodania", dataDodaniaStr);
+    label("offer_data_dodania")
+        .selectFirstAsText(".icon-calendar + span", REQUIRE)
+        .transform(
+            v ->
+            {
+              return ExtendedTypeHelper.pattern2DateTime(
+                  OtoModoHelper.miesiacDopelniacz2Kod(v),
+                  "kk:mm, dd MM yyyy");
+            })
+        .then(v -> car.setData_wystawienia(v));
 
-    String opis = offerDoc.selectFirst("#description").html().trim();
-    otoMotoOfferCarMapper.parse(car, "Opis", opis);
+    label("offer_desc")
+        .selectFirstAsHTML("#description", REQUIRE)
+        .then(car::setOpisHtml);
 
-    boolean isDoNegocjacji = offerDoc.selectFirst(".offer-price__details").text().trim()
-        .contains("Do negocjacji");
-    otoMotoOfferCarMapper.parse(car, "Do negocjacji", isDoNegocjacji ? "TAK" : "NIE");
+    label("offer_do_negocjacji")
+        .selectFirstAsText(".offer-price__details", REQUIRE)
+        .transform(v -> v.contains("Do negocjacji") ? "TAK" : "NIE")
+        .transform(ExtendedTypeHelper::takNieValConv)
+        .then(car::setDoNegocjacji);
   }
 
   private void cena(Car car, Document offerDoc)
   {
-    String kwotaStr = offerDoc.select(".offer-price__number")
-        .attr("data-price")
-        .replaceAll("\\s+", "")
-        .trim();
+    label("offer_cena")
+        .selectFirst(".offer-price__number", REQUIRE)
+        .transform(
+            e ->
+            {
+              return e
+                  .attr("data-price")
+                  .replaceAll("\\s+", "")
+                  .trim();
+            })
+        .validate(JSoupValidatorHelper::NOT_BLANK)
+        .transformAndValidate(JSoupTransformHelper::str2Int)
+        .then(
+            kwota ->
+            {
+              boolean isBrutto = label("isBrutto")
+                  .selectFirstAsText(".offer-price__details", REQUIRE)
+                  .transform(v -> v.contains("Cena Brutto"))
+                  .get();
 
-    Elements rodzajKwoty = offerDoc.select(".offer-price__details");
-    boolean isBrutto = rodzajKwoty.text().contains("Cena Brutto");
+              car.setKwotaZOgloszenia(kwota);
 
-    if (!intValidator.isValid(kwotaStr))
-      otoMotoOfferCarMapper.parse(car, "Kwota", (isBrutto ? "Brutto=" : "Netto=") + kwotaStr);
-    else if (isBrutto)
-      otoMotoOfferCarMapper.parse(car, "Kwota", kwotaStr);
-    else
-    {
-      Double kwota = Integer.parseInt(kwotaStr) * 1.23;
-      otoMotoOfferCarMapper.parse(car, "Kwota", Integer.toString(kwota.intValue()));
-    }
+            });
+    // .transformEx(
+    // (kwotaStr, actionData) ->
+    // {
+    // Elements rodzajKwoty = offerDoc.select(".offer-price__details");
+    // boolean isBrutto = rodzajKwoty.text().contains("Cena Brutto");
+    // return OtoModoHelper.kwotaOferty(kwotaStr, isBrutto, actionData);
+    // })
+    // .then(car::setKwota);
   }
 
   private void offerParamListParse(Car car, Document offerDoc)
@@ -128,37 +184,6 @@ public class OtoMotoOfferParser implements ISiteOfferParser
       String value = "TAK";
       log.debug(() -> label + ": " + value);
       otoMotoOfferCarMapper.parse(car, label, value);
-    }
-  }
-
-  private String pobierzNumerTelefonu(String otoMotoPhoneHash)
-  {
-    String url = "https://www.otomoto.pl/ajax/misc/contact/multi_phone/" + otoMotoPhoneHash + "/";
-    RestTemplate restTemplate = new RestTemplate();
-    OtoMotoPhoneResponse response = restTemplate.getForObject(url, OtoMotoPhoneResponse.class);
-    return response
-        .getValue()
-        .replaceAll("\\s+", "")
-        .replaceAll("0048", "")
-        .replaceAll("\\\\+48", "");
-  }
-
-  private String pobierzAdresEmail(String sellerPageUrl)
-  {
-    try
-    {
-      Document doc = Jsoup.connect(sellerPageUrl).get();
-      Element mailTo = doc.selectFirst("#mailto");
-      if (mailTo != null)
-      {
-        return mailTo.attr("href").replaceAll("^mailto:", "");
-      }
-      return null;
-    }
-    catch (IOException e)
-    {
-      e.printStackTrace();
-      return null;
     }
   }
 
